@@ -330,7 +330,7 @@ public:
 
   // Conversion to bool
   constexpr explicit operator bool() const {
-    for (auto seg : segments) {
+    for (const auto &seg : segments) {
       if (seg != 0)
         return true;
     }
