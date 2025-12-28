@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <climits>
 #include <compare>
 #include <concepts>
 #include <cstdint>
@@ -9,14 +10,94 @@
 #include <string_view>
 #include <type_traits>
 
-namespace ArbitraryPrecision {
-template <size_t Bits>
-  requires(std::has_single_bit(Bits) && (Bits > 64))
-class Integer {
-private:
-  static constexpr size_t NUM_SEGMENTS = Bits / 64;
-  std::array<uint64_t, NUM_SEGMENTS> segments{};
+static_assert(CHAR_BIT == 8);
 
+namespace ArbitraryPrecision {
+enum class Kind : bool { Fixed, Dynamic };
+
+template <Kind kind = Kind::Dynamic, size_t Bits = 0>
+  requires((kind == Kind::Dynamic) ||
+           (std::has_single_bit(Bits) && (Bits > 64)))
+class Integer {
+public:
+  size_t length() const;
+  size_t bits() const;
+  // Constructor from integral types
+  template <std::integral T> Integer(T value);
+
+  // Unary operators
+  Integer operator+() const;
+  Integer operator-() const;
+  Integer operator~() const;
+
+  // Addition
+  Integer &operator+=(const Integer &other);
+  Integer operator+(const Integer &other) const;
+
+  // Subtraction
+  Integer &operator-=(const Integer &other);
+  Integer operator-(const Integer &other) const;
+
+  // Multiplication
+  Integer &operator*=(const Integer &other);
+  Integer operator*(const Integer &other) const;
+
+  // Division (unsigned division algorithm)
+  Integer &operator/=(const Integer &other);
+  Integer operator/(const Integer &other) const;
+
+  // Modulo
+  Integer &operator%=(const Integer &other);
+  Integer operator%(const Integer &other) const;
+
+  // Bitwise AND
+  Integer &operator&=(const Integer &other);
+  Integer operator&(const Integer &other) const;
+
+  // Bitwise OR
+  Integer &operator|=(const Integer &other);
+  Integer operator|(const Integer &other) const;
+
+  // Bitwise XOR
+  Integer &operator^=(const Integer &other);
+  Integer operator^(const Integer &other) const;
+
+  // Left shift
+  Integer &operator<<=(size_t shift);
+  Integer operator<<(size_t shift) const;
+
+  // Right shift (logical)
+  Integer &operator>>=(size_t shift);
+  Integer operator>>(size_t shift) const;
+
+  // Increment/Decrement
+  Integer &operator++();
+  Integer operator++(int);
+
+  Integer &operator--();
+  Integer operator--(int);
+
+  // Comparisons
+  constexpr std::strong_ordering operator<=>(const Integer &other) const;
+  constexpr bool operator==(const Integer &other) const;
+
+  // Conversion to bool
+  constexpr explicit operator bool() const;
+
+  // Returns lowest 64 bits
+  constexpr uint64_t tail() const;
+};
+
+// Fixed precision
+template <size_t Bits>
+  requires((std::has_single_bit(Bits) && (Bits > 64)))
+class Integer<Kind::Fixed, Bits> {
+public:
+  using Chunk = std::uint64_t;
+  using Segments = std::array<Chunk, (Bits / 64)>;
+  Segments segments{};
+
+private:
   // Helper: add with carry
   static constexpr bool add_with_carry(uint64_t &result, uint64_t a, uint64_t b,
                                        bool carry_in) {
@@ -57,20 +138,25 @@ private:
 public:
   constexpr Integer() = default;
 
+  constexpr size_t length() const { return this->segments.size(); }
+  constexpr size_t bits() const {
+    return length() * (sizeof(Chunk) * CHAR_BIT);
+  }
+
   // Constructor from integral types
   template <std::integral T> constexpr Integer(T value) {
     if constexpr (std::is_signed_v<T>) {
       if (value < 0) {
         // Two's complement for negative values
-        segments[0] = static_cast<uint64_t>(value);
-        for (size_t i = 1; i < NUM_SEGMENTS; ++i) {
+        segments[0] = static_cast<Chunk>(value);
+        for (size_t i = 1; i < length(); ++i) {
           segments[i] = ~0ULL;
         }
       } else {
-        segments[0] = static_cast<uint64_t>(value);
+        segments[0] = static_cast<Chunk>(value);
       }
     } else {
-      segments[0] = static_cast<uint64_t>(value);
+      segments[0] = static_cast<Chunk>(value);
     }
   }
 
@@ -80,7 +166,7 @@ public:
   constexpr Integer operator-() const {
     Integer result;
     bool borrow = false;
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = 0; i < length(); ++i) {
       borrow = sub_with_borrow(result.segments[i], 0, segments[i], borrow);
     }
     return result;
@@ -88,7 +174,7 @@ public:
 
   constexpr Integer operator~() const {
     Integer result;
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = 0; i < length(); ++i) {
       result.segments[i] = ~segments[i];
     }
     return result;
@@ -97,7 +183,7 @@ public:
   // Addition
   constexpr Integer &operator+=(const Integer &other) {
     bool carry = false;
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = 0; i < length(); ++i) {
       carry =
           add_with_carry(segments[i], segments[i], other.segments[i], carry);
     }
@@ -113,7 +199,7 @@ public:
   // Subtraction
   constexpr Integer &operator-=(const Integer &other) {
     bool borrow = false;
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = 0; i < length(); ++i) {
       borrow =
           sub_with_borrow(segments[i], segments[i], other.segments[i], borrow);
     }
@@ -129,9 +215,9 @@ public:
   // Multiplication
   constexpr Integer &operator*=(const Integer &other) {
     Integer result;
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
-      uint64_t carry = 0;
-      for (size_t j = 0; j < NUM_SEGMENTS - i; ++j) {
+    for (size_t i = 0; i < length(); ++i) {
+      Chunk carry = 0;
+      for (size_t j = 0; j < length() - i; ++j) {
         auto [lo, hi] = mul128(segments[i], other.segments[j]);
 
         bool c1 = add_with_carry(lo, lo, carry, false);
@@ -173,7 +259,7 @@ public:
 
   // Bitwise AND
   constexpr Integer &operator&=(const Integer &other) {
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = 0; i < length(); ++i) {
       segments[i] &= other.segments[i];
     }
     return *this;
@@ -187,7 +273,7 @@ public:
 
   // Bitwise OR
   constexpr Integer &operator|=(const Integer &other) {
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = 0; i < length(); ++i) {
       segments[i] |= other.segments[i];
     }
     return *this;
@@ -201,7 +287,7 @@ public:
 
   // Bitwise XOR
   constexpr Integer &operator^=(const Integer &other) {
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = 0; i < length(); ++i) {
       segments[i] ^= other.segments[i];
     }
     return *this;
@@ -225,13 +311,13 @@ public:
     size_t bit_shift = shift % 64;
 
     if (bit_shift == 0) {
-      for (size_t i = NUM_SEGMENTS - 1; i >= seg_shift; --i) {
+      for (size_t i = length() - 1; i >= seg_shift; --i) {
         segments[i] = segments[i - seg_shift];
         if (i == seg_shift)
           break;
       }
     } else {
-      for (size_t i = NUM_SEGMENTS - 1; i > seg_shift; --i) {
+      for (size_t i = length() - 1; i > seg_shift; --i) {
         segments[i] = (segments[i - seg_shift] << bit_shift) |
                       (segments[i - seg_shift - 1] >> (64 - bit_shift));
       }
@@ -263,19 +349,18 @@ public:
     size_t bit_shift = shift % 64;
 
     if (bit_shift == 0) {
-      for (size_t i = 0; i < NUM_SEGMENTS - seg_shift; ++i) {
+      for (size_t i = 0; i < length() - seg_shift; ++i) {
         segments[i] = segments[i + seg_shift];
       }
     } else {
-      for (size_t i = 0; i < NUM_SEGMENTS - seg_shift - 1; ++i) {
+      for (size_t i = 0; i < length() - seg_shift - 1; ++i) {
         segments[i] = (segments[i + seg_shift] >> bit_shift) |
                       (segments[i + seg_shift + 1] << (64 - bit_shift));
       }
-      segments[NUM_SEGMENTS - seg_shift - 1] =
-          segments[NUM_SEGMENTS - 1] >> bit_shift;
+      segments[length() - seg_shift - 1] = segments[length() - 1] >> bit_shift;
     }
 
-    for (size_t i = NUM_SEGMENTS - seg_shift; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = length() - seg_shift; i < length(); ++i) {
       segments[i] = 0;
     }
 
@@ -290,7 +375,7 @@ public:
 
   // Increment/Decrement
   constexpr Integer &operator++() {
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = 0; i < length(); ++i) {
       if (++segments[i] != 0)
         break;
     }
@@ -304,7 +389,7 @@ public:
   }
 
   constexpr Integer &operator--() {
-    for (size_t i = 0; i < NUM_SEGMENTS; ++i) {
+    for (size_t i = 0; i < length(); ++i) {
       if (segments[i]-- != 0)
         break;
     }
@@ -319,7 +404,7 @@ public:
 
   // Spaceship operator
   constexpr std::strong_ordering operator<=>(const Integer &other) const {
-    for (size_t i = NUM_SEGMENTS; i > 0; --i) {
+    for (size_t i = length(); i > 0; --i) {
       if (auto cmp = segments[i - 1] <=> other.segments[i - 1]; cmp != 0) {
         return cmp;
       }
@@ -340,8 +425,8 @@ public:
     return false;
   }
 
-  // Conversion to uint64_t (returns lowest 64 bits)
-  constexpr uint64_t to_uint64() const { return segments[0]; }
+  // Returns lowest 64 bits
+  constexpr uint64_t tail() const { return segments[0]; }
 
 private:
   // Helper for division
@@ -374,21 +459,25 @@ private:
   }
 };
 
-// Convert Integer to decimal string
 template <size_t Bits>
-  requires(std::has_single_bit(Bits) && (Bits > 64))
-std::string to_string(const Integer<Bits> &value) {
+  requires((std::has_single_bit(Bits) && (Bits > 64)))
+using Fixed = Integer<Kind::Fixed, Bits>;
+
+// Convert Integer to decimal string
+template <Kind kind, size_t Bits>
+  requires(kind == Kind::Dynamic || (std::has_single_bit(Bits) && (Bits > 64)))
+std::string to_string(const Integer<kind, Bits> &value) {
   if (!value) {
     return "0";
   }
 
   std::string result;
-  Integer<Bits> temp = value;
-  const Integer<Bits> ten(10);
+  Integer<kind, Bits> temp = value;
+  const Integer<kind, Bits> ten(10);
 
   while (temp) {
-    Integer<Bits> digit = temp % ten;
-    result += static_cast<char>('0' + digit.to_uint64());
+    Integer<kind, Bits> digit = temp % ten;
+    result += static_cast<char>('0' + digit.tail());
     temp /= ten;
   }
 
@@ -397,15 +486,15 @@ std::string to_string(const Integer<Bits> &value) {
 }
 
 // Convert string to Integer
-template <size_t Bits>
+template <Kind kind, size_t Bits>
   requires(std::has_single_bit(Bits) && (Bits > 64))
-std::optional<Integer<Bits>> from_string(std::string_view from) {
+std::optional<Integer<kind, Bits>> from_string(std::string_view from) {
   if (from.empty()) {
     return std::nullopt;
   }
 
-  Integer<Bits> result(0);
-  const Integer<Bits> ten(10);
+  Integer<kind, Bits> result(0);
+  const Integer<kind, Bits> ten(10);
 
   for (char c : from) {
     if (c < '0' || c > '9') {
@@ -413,7 +502,7 @@ std::optional<Integer<Bits>> from_string(std::string_view from) {
     }
 
     result *= ten;
-    result += Integer<Bits>(static_cast<int>(c - '0'));
+    result += Integer<kind, Bits>(static_cast<int>(c - '0'));
   }
 
   return result;
@@ -425,8 +514,10 @@ std::optional<Integer<Bits>> from_string(std::string_view from) {
 namespace std {
 template <size_t Bits>
   requires(std::has_single_bit(Bits) && (Bits > 64))
-class numeric_limits<ArbitraryPrecision::Integer<Bits>> {
-  using Integer = ArbitraryPrecision::Integer<Bits>;
+class numeric_limits<
+    ArbitraryPrecision::Integer<ArbitraryPrecision::Kind::Fixed, Bits>> {
+  using Integer =
+      ArbitraryPrecision::Integer<ArbitraryPrecision::Kind::Fixed, Bits>;
 
 public:
   static constexpr bool is_specialized = true;
