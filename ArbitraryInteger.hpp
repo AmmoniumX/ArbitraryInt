@@ -17,7 +17,7 @@ namespace ArbitraryPrecision {
 enum class Kind : bool { Fixed, Dynamic };
 
 template <Kind kind = Kind::Dynamic, size_t Bits = 0>
-  requires((kind == Kind::Dynamic) ||
+  requires((kind == Kind::Dynamic && Bits == 0) ||
            (std::has_single_bit(Bits) && (Bits > 64)))
 class Integer {
 public:
@@ -464,6 +464,7 @@ template <size_t Bits>
   requires((std::has_single_bit(Bits) && (Bits > 64)))
 using Fixed = Integer<Kind::Fixed, Bits>;
 
+// Dynamic precision
 template <> class Integer<Kind::Dynamic, 0> {
 public:
   using Chunk = std::uint64_t;
@@ -717,7 +718,8 @@ public:
     size_t new_len = old_len + seg_shift;
 
     // Check if we need an extra segment for bit overflow
-    if (bit_shift > 0 && old_len > 0 && segments[old_len - 1] >> (64 - bit_shift)) {
+    if (bit_shift > 0 && old_len > 0 &&
+        segments[old_len - 1] >> (64 - bit_shift)) {
       new_len++;
     }
 
@@ -842,7 +844,9 @@ public:
     return std::strong_ordering::equal;
   }
 
-  bool operator==(const Integer &other) const { return segments == other.segments; }
+  bool operator==(const Integer &other) const {
+    return segments == other.segments;
+  }
 
   // Conversion to bool
   explicit operator bool() const {
@@ -901,7 +905,8 @@ using Dynamic = Integer<Kind::Dynamic, 0>;
 
 // Convert Integer to decimal string
 template <Kind kind, size_t Bits>
-  requires(kind == Kind::Dynamic || (std::has_single_bit(Bits) && (Bits > 64)))
+  requires((kind == Kind::Dynamic && Bits == 0) ||
+           (std::has_single_bit(Bits) && (Bits > 64)))
 std::string to_string(const Integer<kind, Bits> &value) {
   if (!value) {
     return "0";
@@ -923,7 +928,8 @@ std::string to_string(const Integer<kind, Bits> &value) {
 
 // Convert string to Integer
 template <Kind kind, size_t Bits>
-  requires(kind == Kind::Dynamic || (std::has_single_bit(Bits) && (Bits > 64)))
+  requires((kind == Kind::Dynamic && Bits == 0) ||
+           (std::has_single_bit(Bits) && (Bits > 64)))
 std::optional<Integer<kind, Bits>> from_string(std::string_view from) {
   if (from.empty()) {
     return std::nullopt;
