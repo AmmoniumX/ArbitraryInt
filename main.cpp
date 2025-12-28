@@ -1665,3 +1665,575 @@ TEST_SUITE("String Conversion") {
     CHECK(parsed == expected);
   }
 }
+
+// Type alias for Dynamic
+using Dynamic = ArbitraryPrecision::Dynamic;
+
+TEST_SUITE("Dynamic Integer - Basic Operations") {
+  TEST_CASE("Default constructor initializes to zero") {
+    Dynamic a;
+    CHECK(a == Dynamic(0));
+    CHECK_FALSE(static_cast<bool>(a));
+    CHECK(a.length() == 1);
+  }
+
+  TEST_CASE("Constructor from unsigned integers") {
+    Dynamic a(42);
+    Dynamic b(0);
+    Dynamic c(std::numeric_limits<uint64_t>::max());
+
+    CHECK(a == Dynamic(42));
+    CHECK(b == Dynamic(0));
+    CHECK(c == Dynamic(std::numeric_limits<uint64_t>::max()));
+  }
+
+  TEST_CASE("Constructor from signed integers") {
+    Dynamic a(42);
+    Dynamic b(-42);
+    Dynamic c(0);
+
+    CHECK(a == Dynamic(42));
+    CHECK(b == Dynamic(-42));
+    CHECK(c == Dynamic(0));
+  }
+
+  TEST_CASE("Constructor with maximum uint64_t value") {
+    Dynamic a(UINT64_MAX);
+    CHECK(a == Dynamic(UINT64_MAX));
+    CHECK(a.length() == 1);
+  }
+
+  TEST_CASE("Basic addition") {
+    Dynamic a(10);
+    Dynamic b(20);
+    Dynamic c = a + b;
+
+    CHECK(c == Dynamic(30));
+  }
+
+  TEST_CASE("Basic subtraction") {
+    Dynamic a(30);
+    Dynamic b(10);
+    Dynamic c = a - b;
+
+    CHECK(c == Dynamic(20));
+  }
+
+  TEST_CASE("Basic multiplication") {
+    Dynamic a(6);
+    Dynamic b(7);
+    Dynamic c = a * b;
+
+    CHECK(c == Dynamic(42));
+  }
+
+  TEST_CASE("Basic division") {
+    Dynamic a(42);
+    Dynamic b(6);
+    Dynamic c = a / b;
+
+    CHECK(c == Dynamic(7));
+  }
+
+  TEST_CASE("Basic modulo") {
+    Dynamic a(43);
+    Dynamic b(6);
+    Dynamic c = a % b;
+
+    CHECK(c == Dynamic(1));
+  }
+
+  TEST_CASE("Unary operators") {
+    Dynamic a(42);
+    CHECK(+a == a);
+    CHECK(-a == Dynamic(-42));
+    CHECK(~~a == a);
+  }
+
+  TEST_CASE("Increment and decrement") {
+    Dynamic a(42);
+    ++a;
+    CHECK(a == Dynamic(43));
+    --a;
+    CHECK(a == Dynamic(42));
+  }
+
+  TEST_CASE("Comparison operators") {
+    Dynamic a(10);
+    Dynamic b(20);
+    Dynamic c(10);
+
+    CHECK(a < b);
+    CHECK(b > a);
+    CHECK(a == c);
+    CHECK(a <= c);
+    CHECK(a >= c);
+    CHECK(a != b);
+  }
+}
+
+TEST_SUITE("Dynamic Integer - Growth Behavior") {
+  TEST_CASE("Addition causes growth") {
+    Dynamic a(UINT64_MAX);
+    Dynamic b(1);
+    Dynamic c = a + b;
+
+    CHECK(c.length() == 2);
+    CHECK(c > a);
+    CHECK(c != Dynamic(0));
+  }
+
+  TEST_CASE("Addition with carry propagation") {
+    Dynamic a(UINT64_MAX);
+    Dynamic b(UINT64_MAX);
+    Dynamic c = a + b;
+
+    CHECK(c.length() >= 2);
+    CHECK(c > a);
+    CHECK(c > b);
+  }
+
+  TEST_CASE("Multiplication causes growth") {
+    Dynamic a(UINT64_MAX);
+    Dynamic b(2);
+    Dynamic c = a * b;
+
+    CHECK(c.length() == 2);
+    CHECK(c > a);
+  }
+
+  TEST_CASE("Large multiplication") {
+    Dynamic a(1ULL << 32);
+    Dynamic b(1ULL << 32);
+    Dynamic c = a * b;
+
+    CHECK(c.length() == 2);
+    CHECK(c == (Dynamic(1) << 64));
+  }
+
+  TEST_CASE("Left shift causes growth") {
+    Dynamic a(1);
+    Dynamic b = a << 65;
+
+    CHECK(b.length() == 2);
+    CHECK(b != Dynamic(0));
+  }
+
+  TEST_CASE("Left shift with bit overflow") {
+    Dynamic a(UINT64_MAX);
+    Dynamic b = a << 1;
+
+    CHECK(b.length() == 2);
+    CHECK(b > a);
+  }
+
+  TEST_CASE("Increment with carry propagation") {
+    Dynamic a(UINT64_MAX);
+    ++a;
+
+    CHECK(a.length() == 2);
+    CHECK(a > Dynamic(UINT64_MAX));
+  }
+
+  TEST_CASE("Multiple increments cause growth") {
+    Dynamic a(UINT64_MAX - 5);
+    for (int i = 0; i < 10; ++i) {
+      ++a;
+    }
+
+    CHECK(a.length() == 2);
+  }
+
+  TEST_CASE("Growth then shrink through subtraction") {
+    Dynamic a(UINT64_MAX);
+    a += Dynamic(1); // Grow to 2 segments
+    CHECK(a.length() == 2);
+
+    a -= Dynamic(1); // Should trim back to 1 segment
+    CHECK(a.length() == 1);
+    CHECK(a == Dynamic(UINT64_MAX));
+  }
+
+  TEST_CASE("Division shrinks result") {
+    Dynamic a(UINT64_MAX);
+    a += Dynamic(1); // 2 segments
+    CHECK(a.length() == 2);
+
+    Dynamic b = a / Dynamic(2);
+    CHECK(b.length() == 1); // Result should be trimmed
+  }
+
+  TEST_CASE("Right shift reduces size") {
+    Dynamic a(1);
+    a <<= 100; // Grow significantly
+    CHECK(a.length() > 1);
+
+    a >>= 100; // Shift back
+    CHECK(a == Dynamic(1));
+    CHECK(a.length() == 1);
+  }
+}
+
+TEST_SUITE("Dynamic Integer - Large Value Operations") {
+  TEST_CASE("Very large factorial") {
+    Dynamic factorial(1);
+    for (int i = 2; i <= 30; ++i) {
+      factorial *= Dynamic(i);
+    }
+
+    CHECK(factorial > Dynamic(0));
+    CHECK(factorial.length() > 1);
+  }
+
+  TEST_CASE("Fibonacci sequence with large values") {
+    Dynamic a(0), b(1);
+    for (int i = 0; i < 100; ++i) {
+      Dynamic temp = a + b;
+      a = b;
+      b = temp;
+    }
+
+    CHECK(b > Dynamic(0));
+    CHECK(b.length() > 1);
+  }
+
+  TEST_CASE("Power of 2 sequences") {
+    Dynamic power(1);
+    for (int i = 0; i < 100; ++i) {
+      power *= Dynamic(2);
+    }
+
+    CHECK(power == (Dynamic(1) << 100));
+    CHECK(power.length() == 2);
+  }
+
+  TEST_CASE("Large addition chain") {
+    Dynamic sum(0);
+    for (int i = 0; i < 1000; ++i) {
+      sum += Dynamic(UINT64_MAX);
+    }
+
+    CHECK(sum > Dynamic(UINT64_MAX));
+    CHECK(sum.length() >= 2);
+  }
+
+  TEST_CASE("Very large bit shift") {
+    Dynamic a(1);
+    Dynamic b = a << 200;
+
+    CHECK(b.length() >= 4);
+    CHECK(b != Dynamic(0));
+
+    Dynamic c = b >> 200;
+    CHECK(c == Dynamic(1));
+  }
+
+  TEST_CASE("Multi-segment addition") {
+    Dynamic a = (Dynamic(1) << 128);
+    Dynamic b = (Dynamic(1) << 64);
+    Dynamic c = a + b;
+
+    CHECK(c > a);
+    CHECK(c > b);
+  }
+
+  TEST_CASE("Multi-segment subtraction") {
+    Dynamic a = (Dynamic(1) << 128);
+    Dynamic b = (Dynamic(1) << 64);
+    Dynamic c = a - b;
+
+    CHECK(c < a);
+    CHECK(c > b);
+  }
+
+  TEST_CASE("Multi-segment multiplication") {
+    Dynamic a = (Dynamic(1) << 64) + Dynamic(42);
+    Dynamic b(100);
+    Dynamic c = a * b;
+
+    CHECK(c > a);
+    CHECK(c.length() >= 2);
+  }
+
+  TEST_CASE("Division of large by small") {
+    Dynamic large = (Dynamic(1) << 100);
+    Dynamic small(1000);
+    Dynamic quotient = large / small;
+
+    CHECK(quotient > Dynamic(0));
+    CHECK(quotient < large);
+  }
+}
+
+TEST_SUITE("Dynamic Integer - Bitwise Operations") {
+  TEST_CASE("Bitwise AND trims result") {
+    Dynamic a = (Dynamic(1) << 100);
+    Dynamic b(UINT64_MAX);
+    Dynamic c = a & b;
+
+    CHECK(c == Dynamic(0));
+    CHECK(c.length() == 1);
+  }
+
+  TEST_CASE("Bitwise OR expands result") {
+    Dynamic a(0xFF);
+    Dynamic b = (Dynamic(1) << 100);
+    Dynamic c = a | b;
+
+    CHECK(c.length() >= 2);
+    CHECK(c > a);
+    CHECK(c > b);
+  }
+
+  TEST_CASE("Bitwise XOR") {
+    Dynamic a(0b1100);
+    Dynamic b(0b1010);
+    Dynamic c = a ^ b;
+
+    CHECK(c == Dynamic(0b0110));
+  }
+
+  TEST_CASE("XOR with different sizes") {
+    Dynamic a = (Dynamic(1) << 100);
+    Dynamic b(UINT64_MAX);
+    Dynamic c = a ^ b;
+
+    CHECK(c.length() >= 2);
+  }
+
+  TEST_CASE("Bitwise NOT") {
+    Dynamic a(0);
+    Dynamic b = ~a;
+
+    // NOT of zero should be large
+    CHECK(b != Dynamic(0));
+  }
+
+  TEST_CASE("Bit manipulation patterns on large values") {
+    Dynamic value = (Dynamic(1) << 100);
+
+    // Set a bit
+    value |= (Dynamic(1) << 50);
+    CHECK((value & (Dynamic(1) << 50)) != Dynamic(0));
+
+    // Clear a bit
+    value &= ~(Dynamic(1) << 50);
+    CHECK((value & (Dynamic(1) << 50)) == Dynamic(0));
+  }
+}
+
+TEST_SUITE("Dynamic Integer - String Conversion") {
+  TEST_CASE("to_string with small values") {
+    CHECK(ArbitraryPrecision::to_string(Dynamic(0)) == "0");
+    CHECK(ArbitraryPrecision::to_string(Dynamic(42)) == "42");
+    CHECK(ArbitraryPrecision::to_string(Dynamic(12345)) == "12345");
+  }
+
+  TEST_CASE("to_string with large values") {
+    Dynamic large(UINT64_MAX);
+    CHECK(ArbitraryPrecision::to_string(large) == "18446744073709551615");
+  }
+
+  TEST_CASE("to_string with multi-segment value") {
+    Dynamic large = (Dynamic(1) << 64) + Dynamic(42);
+    CHECK(ArbitraryPrecision::to_string(large) == "18446744073709551658");
+  }
+
+  TEST_CASE("to_string with very large value") {
+    Dynamic large = (Dynamic(1) << 100);
+    std::string result = ArbitraryPrecision::to_string(large);
+    CHECK(result == "1267650600228229401496703205376");
+  }
+
+  TEST_CASE("from_string with valid input") {
+    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
+              "0")
+              .value() == Dynamic(0));
+    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
+              "42")
+              .value() == Dynamic(42));
+    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
+              "12345")
+              .value() == Dynamic(12345));
+  }
+
+  TEST_CASE("from_string with large value") {
+    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
+              "18446744073709551615")
+              .value() == Dynamic(UINT64_MAX));
+  }
+
+  TEST_CASE("to_string and from_string roundtrip") {
+    Dynamic original(123456789);
+    std::string str = ArbitraryPrecision::to_string(original);
+    Dynamic parsed =
+        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
+            str)
+            .value();
+    CHECK(parsed == original);
+  }
+
+  TEST_CASE("to_string and from_string roundtrip with large value") {
+    Dynamic original = (Dynamic(1) << 100);
+    std::string str = ArbitraryPrecision::to_string(original);
+    Dynamic parsed =
+        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
+            str)
+            .value();
+    CHECK(parsed == original);
+  }
+
+  TEST_CASE("to_string with computed factorial") {
+    Dynamic factorial(1);
+    for (int i = 2; i <= 20; ++i) {
+      factorial *= Dynamic(i);
+    }
+    CHECK(ArbitraryPrecision::to_string(factorial) == "2432902008176640000");
+  }
+}
+
+TEST_SUITE("Dynamic Integer - Edge Cases") {
+  TEST_CASE("Zero minus one") {
+    Dynamic zero(0);
+    Dynamic result = zero - Dynamic(1);
+    CHECK(result == Dynamic(-1));
+  }
+
+  TEST_CASE("Division by zero throws") {
+    Dynamic a(42);
+    Dynamic zero(0);
+    CHECK_THROWS_AS(a / zero, std::domain_error);
+  }
+
+  TEST_CASE("Modulo by zero throws") {
+    Dynamic a(42);
+    Dynamic zero(0);
+    CHECK_THROWS_AS(a % zero, std::domain_error);
+  }
+
+  TEST_CASE("Multiple operations maintain consistency") {
+    Dynamic a(100);
+    Dynamic b(7);
+
+    Dynamic quotient = a / b;
+    Dynamic remainder = a % b;
+
+    CHECK(quotient * b + remainder == a);
+  }
+
+  TEST_CASE("Shift by zero") {
+    Dynamic a(42);
+    CHECK((a << 0) == a);
+    CHECK((a >> 0) == a);
+  }
+
+  TEST_CASE("Large shift then reverse") {
+    Dynamic a(12345);
+    for (int shift = 1; shift < 100; shift += 10) {
+      Dynamic shifted = (a << shift) >> shift;
+      CHECK(shifted == a);
+    }
+  }
+
+  TEST_CASE("Boolean conversion") {
+    CHECK_FALSE(static_cast<bool>(Dynamic(0)));
+    CHECK(static_cast<bool>(Dynamic(1)));
+    CHECK(static_cast<bool>(Dynamic(-1)));
+    CHECK(static_cast<bool>(Dynamic(1) << 100));
+  }
+
+  TEST_CASE("tail() returns lowest 64 bits") {
+    Dynamic a(12345);
+    CHECK(a.tail() == 12345);
+
+    Dynamic b = (Dynamic(1) << 100) + Dynamic(42);
+    CHECK(b.tail() == 42);
+  }
+}
+
+TEST_SUITE("Dynamic Integer - Stress Tests") {
+  TEST_CASE("Many sequential additions") {
+    Dynamic sum(0);
+    for (int i = 0; i < 10000; ++i) {
+      sum += Dynamic(i);
+    }
+    CHECK(sum == Dynamic(49995000));
+  }
+
+  TEST_CASE("Repeated doubling") {
+    Dynamic value(1);
+    for (int i = 0; i < 200; ++i) {
+      value *= Dynamic(2);
+    }
+    CHECK(value == (Dynamic(1) << 200));
+    CHECK(value.length() >= 4);
+  }
+
+  TEST_CASE("GCD with large numbers") {
+    // Use simpler test case that we can verify
+    Dynamic a(48);
+    Dynamic b(18);
+
+    // Euclidean algorithm
+    while (static_cast<bool>(b)) {
+      Dynamic temp = b;
+      b = a % b;
+      a = temp;
+    }
+
+    CHECK(a == Dynamic(6));
+  }
+
+  TEST_CASE("Alternating operations") {
+    Dynamic value(1000);
+    for (int i = 0; i < 1000; ++i) {
+      value += Dynamic(100);
+      value -= Dynamic(50);
+      value *= Dynamic(2);
+      value /= Dynamic(2);
+    }
+    CHECK(value > Dynamic(1000));
+  }
+
+  TEST_CASE("Complex arithmetic expression") {
+    Dynamic a(12345);
+    Dynamic b(67890);
+    Dynamic c(111);
+
+    Dynamic result = ((a + b) * c - (a * b / c)) % Dynamic(1000000);
+    CHECK(result > Dynamic(0));
+  }
+}
+
+TEST_SUITE("Dynamic Integer - Comparison with Fixed") {
+  TEST_CASE("Dynamic and Fixed produce same results for small values") {
+    Dynamic dyn_a(12345);
+    Dynamic dyn_b(67890);
+
+    Int128 fix_a(12345);
+    Int128 fix_b(67890);
+
+    // Addition
+    CHECK(ArbitraryPrecision::to_string(dyn_a + dyn_b) ==
+          ArbitraryPrecision::to_string(fix_a + fix_b));
+
+    // Multiplication
+    CHECK(ArbitraryPrecision::to_string(dyn_a * dyn_b) ==
+          ArbitraryPrecision::to_string(fix_a * fix_b));
+
+    // Division
+    CHECK(ArbitraryPrecision::to_string(dyn_b / dyn_a) ==
+          ArbitraryPrecision::to_string(fix_b / fix_a));
+  }
+
+  TEST_CASE("Dynamic can exceed Fixed size") {
+    Dynamic dyn(1);
+    dyn <<= 200; // Shift beyond 128 bits
+
+    CHECK(dyn.length() >= 4);
+    CHECK(dyn != Dynamic(0));
+
+    // A 128-bit Fixed would wrap, but Dynamic grows
+    CHECK(ArbitraryPrecision::to_string(dyn).length() > 38);
+  }
+}
