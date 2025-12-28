@@ -1,9 +1,12 @@
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <compare>
 #include <concepts>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <type_traits>
 
 namespace ArbitraryPrecision {
@@ -337,6 +340,9 @@ public:
     return false;
   }
 
+  // Conversion to uint64_t (returns lowest 64 bits)
+  constexpr uint64_t to_uint64() const { return segments[0]; }
+
 private:
   // Helper for division
   static constexpr std::pair<Integer, Integer> divide(const Integer &dividend,
@@ -367,6 +373,51 @@ private:
     return {quotient, remainder};
   }
 };
+
+// Convert Integer to decimal string
+template <size_t Bits>
+  requires(std::has_single_bit(Bits) && (Bits > 64))
+std::string to_string(const Integer<Bits> &value) {
+  if (!value) {
+    return "0";
+  }
+
+  std::string result;
+  Integer<Bits> temp = value;
+  const Integer<Bits> ten(10);
+
+  while (temp) {
+    Integer<Bits> digit = temp % ten;
+    result += static_cast<char>('0' + digit.to_uint64());
+    temp /= ten;
+  }
+
+  std::reverse(result.begin(), result.end());
+  return result;
+}
+
+// Convert string to Integer
+template <size_t Bits>
+  requires(std::has_single_bit(Bits) && (Bits > 64))
+std::optional<Integer<Bits>> from_string(std::string_view from) {
+  if (from.empty()) {
+    return std::nullopt;
+  }
+
+  Integer<Bits> result(0);
+  const Integer<Bits> ten(10);
+
+  for (char c : from) {
+    if (c < '0' || c > '9') {
+      return std::nullopt;
+    }
+
+    result *= ten;
+    result += Integer<Bits>(static_cast<int>(c - '0'));
+  }
+
+  return result;
+}
 
 } // namespace ArbitraryPrecision
 
