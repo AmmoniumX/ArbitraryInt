@@ -5,6 +5,7 @@
 #include <compare>
 #include <concepts>
 #include <cstdint>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -14,91 +15,19 @@
 static_assert(CHAR_BIT == 8);
 
 namespace ArbitraryPrecision {
-enum class Kind : bool { Fixed, Dynamic };
-
-template <Kind kind = Kind::Dynamic, size_t Bits = 0>
-  requires((kind == Kind::Dynamic && Bits == 0) ||
-           (std::has_single_bit(Bits) && (Bits > 64)))
-class Integer {
-public:
-  size_t length() const;
-  size_t bits() const;
-  // Constructor from integral types
-  template <std::integral T> Integer(T value);
-
-  // Unary operators
-  Integer operator+() const;
-  Integer operator-() const;
-  Integer operator~() const;
-
-  // Addition
-  Integer &operator+=(const Integer &other);
-  Integer operator+(const Integer &other) const;
-
-  // Subtraction
-  Integer &operator-=(const Integer &other);
-  Integer operator-(const Integer &other) const;
-
-  // Multiplication
-  Integer &operator*=(const Integer &other);
-  Integer operator*(const Integer &other) const;
-
-  // Division (unsigned division algorithm)
-  Integer &operator/=(const Integer &other);
-  Integer operator/(const Integer &other) const;
-
-  // Modulo
-  Integer &operator%=(const Integer &other);
-  Integer operator%(const Integer &other) const;
-
-  // Bitwise AND
-  Integer &operator&=(const Integer &other);
-  Integer operator&(const Integer &other) const;
-
-  // Bitwise OR
-  Integer &operator|=(const Integer &other);
-  Integer operator|(const Integer &other) const;
-
-  // Bitwise XOR
-  Integer &operator^=(const Integer &other);
-  Integer operator^(const Integer &other) const;
-
-  // Left shift
-  Integer &operator<<=(size_t shift);
-  Integer operator<<(size_t shift) const;
-
-  // Right shift (logical)
-  Integer &operator>>=(size_t shift);
-  Integer operator>>(size_t shift) const;
-
-  // Increment/Decrement
-  Integer &operator++();
-  Integer operator++(int);
-
-  Integer &operator--();
-  Integer operator--(int);
-
-  // Comparisons
-  constexpr std::strong_ordering operator<=>(const Integer &other) const;
-  constexpr bool operator==(const Integer &other) const;
-
-  // Conversion to bool
-  constexpr explicit operator bool() const;
-
-  // Returns lowest 64 bits
-  constexpr uint64_t tail() const;
-};
+template <size_t Bits = 0> class Integer {};
 
 // Fixed precision
 template <size_t Bits>
-  requires((std::has_single_bit(Bits) && (Bits > 64)))
-class Integer<Kind::Fixed, Bits> {
+  requires((Bits != std::dynamic_extent) &&
+           (std::has_single_bit(Bits) && (Bits > 64)))
+class Integer<Bits> {
 public:
   using Chunk = std::uint64_t;
   using Segments = std::array<Chunk, (Bits / 64)>;
-  Segments segments{};
 
 private:
+  Segments segments{};
   // Helper: add with carry
   static constexpr bool add_with_carry(uint64_t &result, uint64_t a, uint64_t b,
                                        bool carry_in) {
@@ -429,6 +358,10 @@ public:
   // Returns lowest 64 bits
   constexpr uint64_t tail() const { return segments[0]; }
 
+  constexpr std::span<Chunk, (Bits / 64)> as_span() {
+    return std::span{segments.begin(), segments.size()};
+  }
+
 private:
   // Helper for division
   static constexpr std::pair<Integer, Integer> divide(const Integer &dividend,
@@ -461,17 +394,18 @@ private:
 };
 
 template <size_t Bits>
-  requires((std::has_single_bit(Bits) && (Bits > 64)))
-using Fixed = Integer<Kind::Fixed, Bits>;
+  requires((Bits != std::dynamic_extent) &&
+           (std::has_single_bit(Bits) && (Bits > 64)))
+using Fixed = Integer<Bits>;
 
 // Dynamic precision
-template <> class Integer<Kind::Dynamic, 0> {
+template <> class Integer<std::dynamic_extent> {
 public:
   using Chunk = std::uint64_t;
   using Segments = std::vector<Chunk>;
-  Segments segments;
 
 private:
+  Segments segments;
   // Helper: add with carry
   static bool add_with_carry(uint64_t &result, uint64_t a, uint64_t b,
                              bool carry_in) {
@@ -860,6 +794,10 @@ public:
   // Returns lowest 64 bits
   uint64_t tail() const { return segments[0]; }
 
+  constexpr std::span<Chunk, std::dynamic_extent> as_span() {
+    return std::span{segments.begin(), segments.size()};
+  }
+
 private:
   // Helper for division
   static std::pair<Integer, Integer> divide(const Integer &dividend,
@@ -901,23 +839,23 @@ private:
   }
 };
 
-using Dynamic = Integer<Kind::Dynamic, 0>;
+using Dynamic = Integer<std::dynamic_extent>;
 
 // Convert Integer to decimal string
-template <Kind kind, size_t Bits>
-  requires((kind == Kind::Dynamic && Bits == 0) ||
+template <size_t Bits>
+  requires((Bits == std::dynamic_extent) ||
            (std::has_single_bit(Bits) && (Bits > 64)))
-std::string to_string(const Integer<kind, Bits> &value) {
+std::string to_string(const Integer<Bits> &value) {
   if (!value) {
     return "0";
   }
 
   std::string result;
-  Integer<kind, Bits> temp = value;
-  const Integer<kind, Bits> ten(10);
+  Integer<Bits> temp = value;
+  const Integer<Bits> ten(10);
 
   while (temp) {
-    Integer<kind, Bits> digit = temp % ten;
+    Integer<Bits> digit = temp % ten;
     result += static_cast<char>('0' + digit.tail());
     temp /= ten;
   }
@@ -927,16 +865,16 @@ std::string to_string(const Integer<kind, Bits> &value) {
 }
 
 // Convert string to Integer
-template <Kind kind, size_t Bits>
-  requires((kind == Kind::Dynamic && Bits == 0) ||
+template <size_t Bits>
+  requires((Bits == std::dynamic_extent) ||
            (std::has_single_bit(Bits) && (Bits > 64)))
-std::optional<Integer<kind, Bits>> from_string(std::string_view from) {
+std::optional<Integer<Bits>> from_string(std::string_view from) {
   if (from.empty()) {
     return std::nullopt;
   }
 
-  Integer<kind, Bits> result(0);
-  const Integer<kind, Bits> ten(10);
+  Integer<Bits> result(0);
+  const Integer<Bits> ten(10);
 
   for (char c : from) {
     if (c < '0' || c > '9') {
@@ -944,7 +882,7 @@ std::optional<Integer<kind, Bits>> from_string(std::string_view from) {
     }
 
     result *= ten;
-    result += Integer<kind, Bits>(static_cast<int>(c - '0'));
+    result += Integer<Bits>(static_cast<int>(c - '0'));
   }
 
   return result;
@@ -955,11 +893,10 @@ std::optional<Integer<kind, Bits>> from_string(std::string_view from) {
 // std::numeric_limits specialization
 namespace std {
 template <size_t Bits>
-  requires(std::has_single_bit(Bits) && (Bits > 64))
-class numeric_limits<
-    ArbitraryPrecision::Integer<ArbitraryPrecision::Kind::Fixed, Bits>> {
-  using Integer =
-      ArbitraryPrecision::Integer<ArbitraryPrecision::Kind::Fixed, Bits>;
+  requires((Bits != std::dynamic_extent) &&
+           (std::has_single_bit(Bits) && (Bits > 64)))
+class numeric_limits<ArbitraryPrecision::Integer<Bits>> {
+  using Integer = ArbitraryPrecision::Integer<Bits>;
 
 public:
   static constexpr bool is_specialized = true;

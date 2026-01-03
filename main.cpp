@@ -1550,68 +1550,45 @@ TEST_SUITE("String Conversion") {
   }
 
   TEST_CASE("from_string with valid input") {
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-              "0")
-              .value() == Int128(0));
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-              "1")
-              .value() == Int128(1));
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-              "42")
-              .value() == Int128(42));
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-              "123")
-              .value() == Int128(123));
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-              "12345")
-              .value() == Int128(12345));
+    CHECK(ArbitraryPrecision::from_string<128>("0").value() == Int128(0));
+    CHECK(ArbitraryPrecision::from_string<128>("1").value() == Int128(1));
+    CHECK(ArbitraryPrecision::from_string<128>("42").value() == Int128(42));
+    CHECK(ArbitraryPrecision::from_string<128>("123").value() == Int128(123));
+    CHECK(ArbitraryPrecision::from_string<128>("12345").value() ==
+          Int128(12345));
   }
 
   TEST_CASE("from_string with large numbers") {
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-              "1000000")
-              .value() == Int128(1000000));
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-              "18446744073709551615")
-              .value() == Int128(UINT64_MAX));
+    CHECK(ArbitraryPrecision::from_string<128>("1000000").value() ==
+          Int128(1000000));
+    CHECK(
+        ArbitraryPrecision::from_string<128>("18446744073709551615").value() ==
+        Int128(UINT64_MAX));
   }
 
   TEST_CASE("from_string with leading zeros") {
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-              "00042")
-              .value() == Int128(42));
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-              "0000")
-              .value() == Int128(0));
+    CHECK(ArbitraryPrecision::from_string<128>("00042").value() == Int128(42));
+    CHECK(ArbitraryPrecision::from_string<128>("0000").value() == Int128(0));
   }
 
   TEST_CASE("to_string and from_string roundtrip") {
     Int128 original(12345);
     std::string str = ArbitraryPrecision::to_string(original);
-    Int128 parsed =
-        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-            str)
-            .value();
+    Int128 parsed = ArbitraryPrecision::from_string<128>(str).value();
     CHECK(parsed == original);
   }
 
   TEST_CASE("to_string and from_string roundtrip with large values") {
     Int128 original(UINT64_MAX);
     std::string str = ArbitraryPrecision::to_string(original);
-    Int128 parsed =
-        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-            str)
-            .value();
+    Int128 parsed = ArbitraryPrecision::from_string<128>(str).value();
     CHECK(parsed == original);
   }
 
   TEST_CASE("to_string and from_string roundtrip with zero") {
     Int128 original(0);
     std::string str = ArbitraryPrecision::to_string(original);
-    Int128 parsed =
-        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 128>(
-            str)
-            .value();
+    Int128 parsed = ArbitraryPrecision::from_string<128>(str).value();
     CHECK(parsed == original);
     CHECK(str == "0");
   }
@@ -1619,18 +1596,12 @@ TEST_SUITE("String Conversion") {
   TEST_CASE("to_string and from_string with different bit sizes") {
     Int256 val256(123456789);
     std::string str256 = ArbitraryPrecision::to_string(val256);
-    Int256 parsed256 =
-        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 256>(
-            str256)
-            .value();
+    Int256 parsed256 = ArbitraryPrecision::from_string<256>(str256).value();
     CHECK(parsed256 == val256);
 
     Int512 val512(987654321);
     std::string str512 = ArbitraryPrecision::to_string(val512);
-    Int512 parsed512 =
-        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 512>(
-            str512)
-            .value();
+    Int512 parsed512 = ArbitraryPrecision::from_string<512>(str512).value();
     CHECK(parsed512 == val512);
   }
 
@@ -1657,10 +1628,7 @@ TEST_SUITE("String Conversion") {
 
   TEST_CASE("from_string with very large multi-segment value") {
     std::string large_str = "340282366920938463463374607431768211455";
-    Int256 parsed =
-        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Fixed, 256>(
-            large_str)
-            .value();
+    Int256 parsed = ArbitraryPrecision::from_string<256>(large_str).value();
     Int256 expected = (Int256(1) << 128) - Int256(1);
     CHECK(parsed == expected);
   }
@@ -2046,19 +2014,17 @@ TEST_SUITE("Dynamic Integer - String Conversion") {
   }
 
   TEST_CASE("from_string with valid input") {
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
-              "0")
-              .value() == Dynamic(0));
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
-              "42")
-              .value() == Dynamic(42));
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
-              "12345")
-              .value() == Dynamic(12345));
+    CHECK(ArbitraryPrecision::from_string<std::dynamic_extent>("0").value() ==
+          Dynamic(0));
+    CHECK(ArbitraryPrecision::from_string<std::dynamic_extent>("42").value() ==
+          Dynamic(42));
+    CHECK(
+        ArbitraryPrecision::from_string<std::dynamic_extent>("12345").value() ==
+        Dynamic(12345));
   }
 
   TEST_CASE("from_string with large value") {
-    CHECK(ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
+    CHECK(ArbitraryPrecision::from_string<std::dynamic_extent>(
               "18446744073709551615")
               .value() == Dynamic(UINT64_MAX));
   }
@@ -2067,9 +2033,7 @@ TEST_SUITE("Dynamic Integer - String Conversion") {
     Dynamic original(123456789);
     std::string str = ArbitraryPrecision::to_string(original);
     Dynamic parsed =
-        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
-            str)
-            .value();
+        ArbitraryPrecision::from_string<std::dynamic_extent>(str).value();
     CHECK(parsed == original);
   }
 
@@ -2077,9 +2041,7 @@ TEST_SUITE("Dynamic Integer - String Conversion") {
     Dynamic original = (Dynamic(1) << 100);
     std::string str = ArbitraryPrecision::to_string(original);
     Dynamic parsed =
-        ArbitraryPrecision::from_string<ArbitraryPrecision::Kind::Dynamic, 0>(
-            str)
-            .value();
+        ArbitraryPrecision::from_string<std::dynamic_extent>(str).value();
     CHECK(parsed == original);
   }
 
