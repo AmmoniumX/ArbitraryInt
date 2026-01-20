@@ -15,16 +15,39 @@
 static_assert(CHAR_BIT == 8);
 
 namespace ArbitraryPrecision {
-template <size_t Bits = 0> class Integer {};
+
+namespace detail {
+template <typename T, template <auto...> class C>
+struct instantiation_of_nontype_impl : std::false_type {};
+
+template <template <auto...> class C, auto... Args>
+struct instantiation_of_nontype_impl<C<Args...>, C> : std::true_type {};
+
+template <typename T, template <auto...> class C>
+concept instantiation_of_nontype = instantiation_of_nontype_impl<T, C>::value;
+} // namespace detail
+
+template <size_t Bits>
+  requires(std::has_single_bit(Bits) && (Bits > 64))
+class FixedInteger;
+
+class DynamicInteger;
+
+template <typename T>
+concept Integer = detail::instantiation_of_nontype<T, FixedInteger> ||
+                  std::is_same_v<T, DynamicInteger>;
 
 // Fixed precision
-template <size_t Bits>
-  requires((Bits != std::dynamic_extent) &&
-           (std::has_single_bit(Bits) && (Bits > 64)))
-class Integer<Bits> {
+template <size_t Bits_>
+  requires(std::has_single_bit(Bits_) && (Bits_ > 64))
+class FixedInteger {
 public:
+  static constexpr size_t Bits = Bits_;
+
   using Chunk = std::uint64_t;
   using Segments = std::array<Chunk, (Bits / 64)>;
+
+  static constexpr bool is_dynamic = false;
 
 private:
   Segments segments{};
@@ -66,7 +89,7 @@ private:
   }
 
 public:
-  constexpr Integer() = default;
+  constexpr FixedInteger() = default;
 
   constexpr size_t length() const { return this->segments.size(); }
   constexpr size_t bits() const {
@@ -74,8 +97,10 @@ public:
   }
 
   // Constructor from integral types
-  template <std::integral T> constexpr Integer(T value) {
-    if constexpr (std::is_signed_v<T>) {
+  constexpr FixedInteger(std::integral auto value) {
+    static_assert(sizeof(decltype(value)) <= sizeof(Chunk),
+                  "Integral value cannot be larger than Chunk value");
+    if constexpr (std::is_signed_v<decltype(value)>) {
       if (value < 0) {
         // Two's complement for negative values
         segments[0] = static_cast<Chunk>(value);
@@ -91,10 +116,10 @@ public:
   }
 
   // Unary operators
-  constexpr Integer operator+() const { return *this; }
+  constexpr FixedInteger operator+() const { return *this; }
 
-  constexpr Integer operator-() const {
-    Integer result;
+  constexpr FixedInteger operator-() const {
+    FixedInteger result;
     bool borrow = false;
     for (size_t i = 0; i < length(); ++i) {
       borrow = sub_with_borrow(result.segments[i], 0, segments[i], borrow);
@@ -102,8 +127,8 @@ public:
     return result;
   }
 
-  constexpr Integer operator~() const {
-    Integer result;
+  constexpr FixedInteger operator~() const {
+    FixedInteger result;
     for (size_t i = 0; i < length(); ++i) {
       result.segments[i] = ~segments[i];
     }
@@ -111,7 +136,7 @@ public:
   }
 
   // Addition
-  constexpr Integer &operator+=(const Integer &other) {
+  constexpr FixedInteger &operator+=(const FixedInteger &other) {
     bool carry = false;
     for (size_t i = 0; i < length(); ++i) {
       carry =
@@ -120,14 +145,14 @@ public:
     return *this;
   }
 
-  constexpr Integer operator+(const Integer &other) const {
-    Integer result = *this;
+  constexpr FixedInteger operator+(const FixedInteger &other) const {
+    FixedInteger result = *this;
     result += other;
     return result;
   }
 
   // Subtraction
-  constexpr Integer &operator-=(const Integer &other) {
+  constexpr FixedInteger &operator-=(const FixedInteger &other) {
     bool borrow = false;
     for (size_t i = 0; i < length(); ++i) {
       borrow =
@@ -136,15 +161,15 @@ public:
     return *this;
   }
 
-  constexpr Integer operator-(const Integer &other) const {
-    Integer result = *this;
+  constexpr FixedInteger operator-(const FixedInteger &other) const {
+    FixedInteger result = *this;
     result -= other;
     return result;
   }
 
   // Multiplication
-  constexpr Integer &operator*=(const Integer &other) {
-    Integer result;
+  constexpr FixedInteger &operator*=(const FixedInteger &other) {
+    FixedInteger result;
     for (size_t i = 0; i < length(); ++i) {
       Chunk carry = 0;
       for (size_t j = 0; j < length() - i; ++j) {
@@ -161,76 +186,76 @@ public:
     return *this;
   }
 
-  constexpr Integer operator*(const Integer &other) const {
-    Integer result = *this;
+  constexpr FixedInteger operator*(const FixedInteger &other) const {
+    FixedInteger result = *this;
     result *= other;
     return result;
   }
 
   // Division (unsigned division algorithm)
-  constexpr Integer &operator/=(const Integer &other) {
+  constexpr FixedInteger &operator/=(const FixedInteger &other) {
     *this = divide(*this, other).first;
     return *this;
   }
 
-  constexpr Integer operator/(const Integer &other) const {
+  constexpr FixedInteger operator/(const FixedInteger &other) const {
     return divide(*this, other).first;
   }
 
   // Modulo
-  constexpr Integer &operator%=(const Integer &other) {
+  constexpr FixedInteger &operator%=(const FixedInteger &other) {
     *this = divide(*this, other).second;
     return *this;
   }
 
-  constexpr Integer operator%(const Integer &other) const {
+  constexpr FixedInteger operator%(const FixedInteger &other) const {
     return divide(*this, other).second;
   }
 
   // Bitwise AND
-  constexpr Integer &operator&=(const Integer &other) {
+  constexpr FixedInteger &operator&=(const FixedInteger &other) {
     for (size_t i = 0; i < length(); ++i) {
       segments[i] &= other.segments[i];
     }
     return *this;
   }
 
-  constexpr Integer operator&(const Integer &other) const {
-    Integer result = *this;
+  constexpr FixedInteger operator&(const FixedInteger &other) const {
+    FixedInteger result = *this;
     result &= other;
     return result;
   }
 
   // Bitwise OR
-  constexpr Integer &operator|=(const Integer &other) {
+  constexpr FixedInteger &operator|=(const FixedInteger &other) {
     for (size_t i = 0; i < length(); ++i) {
       segments[i] |= other.segments[i];
     }
     return *this;
   }
 
-  constexpr Integer operator|(const Integer &other) const {
-    Integer result = *this;
+  constexpr FixedInteger operator|(const FixedInteger &other) const {
+    FixedInteger result = *this;
     result |= other;
     return result;
   }
 
   // Bitwise XOR
-  constexpr Integer &operator^=(const Integer &other) {
+  constexpr FixedInteger &operator^=(const FixedInteger &other) {
     for (size_t i = 0; i < length(); ++i) {
       segments[i] ^= other.segments[i];
     }
     return *this;
   }
 
-  constexpr Integer operator^(const Integer &other) const {
-    Integer result = *this;
+  constexpr FixedInteger operator^(const FixedInteger &other) const {
+    FixedInteger result = *this;
     result ^= other;
     return result;
   }
 
   // Left shift
-  constexpr Integer &operator<<=(size_t shift) {
+  constexpr FixedInteger &operator<<=(size_t shift) {
     if (shift >= Bits) {
       for (auto &seg : segments)
         seg = 0;
@@ -261,14 +286,14 @@ public:
     return *this;
   }
 
-  constexpr Integer operator<<(size_t shift) const {
-    Integer result = *this;
+  constexpr FixedInteger operator<<(size_t shift) const {
+    FixedInteger result = *this;
     result <<= shift;
     return result;
   }
 
   // Right shift (logical)
-  constexpr Integer &operator>>=(size_t shift) {
+  constexpr FixedInteger &operator>>=(size_t shift) {
     if (shift >= Bits) {
       for (auto &seg : segments)
         seg = 0;
@@ -297,14 +322,14 @@ public:
     return *this;
   }
 
-  constexpr Integer operator>>(size_t shift) const {
-    Integer result = *this;
+  constexpr FixedInteger operator>>(size_t shift) const {
+    FixedInteger result = *this;
     result >>= shift;
     return result;
   }
 
   // Increment/Decrement
-  constexpr Integer &operator++() {
+  constexpr FixedInteger &operator++() {
     for (size_t i = 0; i < length(); ++i) {
       if (++segments[i] != 0)
         break;
@@ -312,13 +337,13 @@ public:
     return *this;
   }
 
-  constexpr Integer operator++(int) {
-    Integer temp = *this;
+  constexpr FixedInteger operator++(int) {
+    FixedInteger temp = *this;
     ++(*this);
     return temp;
   }
 
-  constexpr Integer &operator--() {
+  constexpr FixedInteger &operator--() {
     for (size_t i = 0; i < length(); ++i) {
       if (segments[i]-- != 0)
         break;
@@ -326,14 +351,14 @@ public:
     return *this;
   }
 
-  constexpr Integer operator--(int) {
-    Integer temp = *this;
+  constexpr FixedInteger operator--(int) {
+    FixedInteger temp = *this;
     --(*this);
     return temp;
   }
 
   // Spaceship operator
-  constexpr std::strong_ordering operator<=>(const Integer &other) const {
+  constexpr std::strong_ordering operator<=>(const FixedInteger &other) const {
     for (size_t i = length(); i > 0; --i) {
       if (auto cmp = segments[i - 1] <=> other.segments[i - 1]; cmp != 0) {
         return cmp;
@@ -342,7 +367,7 @@ public:
     return std::strong_ordering::equal;
   }
 
-  constexpr bool operator==(const Integer &other) const {
+  constexpr bool operator==(const FixedInteger &other) const {
     return segments == other.segments;
   }
 
@@ -364,14 +389,14 @@ public:
 
 private:
   // Helper for division
-  static constexpr std::pair<Integer, Integer> divide(const Integer &dividend,
-                                                      const Integer &divisor) {
+  static constexpr std::pair<FixedInteger, FixedInteger>
+  divide(const FixedInteger &dividend, const FixedInteger &divisor) {
     if (!divisor) {
       throw std::domain_error("Division by zero");
     }
 
-    Integer quotient;
-    Integer remainder;
+    FixedInteger quotient;
+    FixedInteger remainder;
 
     for (size_t i = Bits; i > 0; --i) {
       size_t bit_idx = i - 1;
@@ -393,16 +418,13 @@ private:
   }
 };
 
-template <size_t Bits>
-  requires((Bits != std::dynamic_extent) &&
-           (std::has_single_bit(Bits) && (Bits > 64)))
-using Fixed = Integer<Bits>;
-
 // Dynamic precision
-template <> class Integer<std::dynamic_extent> {
+class DynamicInteger {
 public:
   using Chunk = std::uint64_t;
   using Segments = std::vector<Chunk>;
+
+  static constexpr bool is_dynamic = true;
 
 private:
   Segments segments;
@@ -450,13 +472,15 @@ private:
   }
 
 public:
-  Integer() : segments(1, 0) {}
+  DynamicInteger() : segments(1, 0) {}
 
   size_t length() const { return segments.size(); }
   size_t bits() const { return length() * (sizeof(Chunk) * CHAR_BIT); }
 
   // Constructor from integral types
-  template <std::integral T> Integer(T value) : segments(1, 0) {
+  DynamicInteger(std::integral auto value) : segments(1, 0) {
+    static_assert(sizeof(decltype(value)) <= sizeof(Chunk),
+                  "Integral value cannot be larger than Chunk value");
     // Simply cast the value to Chunk - for signed negative values,
     // this will produce the correct two's complement representation
     // in the lowest 64 bits without unnecessary sign extension
@@ -464,10 +488,10 @@ public:
   }
 
   // Unary operators
-  Integer operator+() const { return *this; }
+  DynamicInteger operator+() const { return *this; }
 
-  Integer operator-() const {
-    Integer result;
+  DynamicInteger operator-() const {
+    DynamicInteger result;
     result.segments.resize(length());
     bool borrow = false;
     for (size_t i = 0; i < length(); ++i) {
@@ -478,8 +502,8 @@ public:
     return result;
   }
 
-  Integer operator~() const {
-    Integer result;
+  DynamicInteger operator~() const {
+    DynamicInteger result;
     result.segments.resize(length());
     for (size_t i = 0; i < length(); ++i) {
       result.segments[i] = ~segments[i];
@@ -488,7 +512,7 @@ public:
   }
 
   // Addition
-  Integer &operator+=(const Integer &other) {
+  DynamicInteger &operator+=(const DynamicInteger &other) {
     size_t max_len = std::max(length(), other.length());
     segments.resize(max_len, 0);
 
@@ -507,14 +531,14 @@ public:
     return *this;
   }
 
-  Integer operator+(const Integer &other) const {
-    Integer result = *this;
+  DynamicInteger operator+(const DynamicInteger &other) const {
+    DynamicInteger result = *this;
     result += other;
     return result;
   }
 
   // Subtraction
-  Integer &operator-=(const Integer &other) {
+  DynamicInteger &operator-=(const DynamicInteger &other) {
     size_t max_len = std::max(length(), other.length());
     segments.resize(max_len, 0);
 
@@ -528,15 +552,15 @@ public:
     return *this;
   }
 
-  Integer operator-(const Integer &other) const {
-    Integer result = *this;
+  DynamicInteger operator-(const DynamicInteger &other) const {
+    DynamicInteger result = *this;
     result -= other;
     return result;
   }
 
   // Multiplication
-  Integer &operator*=(const Integer &other) {
-    Integer result;
+  DynamicInteger &operator*=(const DynamicInteger &other) {
+    DynamicInteger result;
     result.segments.resize(length() + other.length(), 0);
 
     for (size_t i = 0; i < length(); ++i) {
@@ -563,34 +587,34 @@ public:
     return *this;
   }
 
-  Integer operator*(const Integer &other) const {
-    Integer result = *this;
+  DynamicInteger operator*(const DynamicInteger &other) const {
+    DynamicInteger result = *this;
     result *= other;
     return result;
   }
 
   // Division (unsigned division algorithm)
-  Integer &operator/=(const Integer &other) {
+  DynamicInteger &operator/=(const DynamicInteger &other) {
     *this = divide(*this, other).first;
     return *this;
   }
 
-  Integer operator/(const Integer &other) const {
+  DynamicInteger operator/(const DynamicInteger &other) const {
     return divide(*this, other).first;
   }
 
   // Modulo
-  Integer &operator%=(const Integer &other) {
+  DynamicInteger &operator%=(const DynamicInteger &other) {
     *this = divide(*this, other).second;
     return *this;
   }
 
-  Integer operator%(const Integer &other) const {
+  DynamicInteger operator%(const DynamicInteger &other) const {
     return divide(*this, other).second;
   }
 
   // Bitwise AND
-  Integer &operator&=(const Integer &other) {
+  DynamicInteger &operator&=(const DynamicInteger &other) {
     size_t min_len = std::min(length(), other.length());
     segments.resize(min_len);
     for (size_t i = 0; i < min_len; ++i) {
@@ -600,14 +624,14 @@ public:
     return *this;
   }
 
-  Integer operator&(const Integer &other) const {
-    Integer result = *this;
+  DynamicInteger operator&(const DynamicInteger &other) const {
+    DynamicInteger result = *this;
     result &= other;
     return result;
   }
 
   // Bitwise OR
-  Integer &operator|=(const Integer &other) {
+  DynamicInteger &operator|=(const DynamicInteger &other) {
     size_t max_len = std::max(length(), other.length());
     segments.resize(max_len, 0);
     for (size_t i = 0; i < other.length(); ++i) {
@@ -617,14 +641,14 @@ public:
     return *this;
   }
 
-  Integer operator|(const Integer &other) const {
-    Integer result = *this;
+  DynamicInteger operator|(const DynamicInteger &other) const {
+    DynamicInteger result = *this;
     result |= other;
     return result;
   }
 
   // Bitwise XOR
-  Integer &operator^=(const Integer &other) {
+  DynamicInteger &operator^=(const DynamicInteger &other) {
     size_t max_len = std::max(length(), other.length());
     segments.resize(max_len, 0);
     for (size_t i = 0; i < other.length(); ++i) {
@@ -634,14 +658,14 @@ public:
     return *this;
   }
 
-  Integer operator^(const Integer &other) const {
-    Integer result = *this;
+  DynamicInteger operator^(const DynamicInteger &other) const {
+    DynamicInteger result = *this;
     result ^= other;
     return result;
   }
 
   // Left shift
-  Integer &operator<<=(size_t shift) {
+  DynamicInteger &operator<<=(size_t shift) {
     if (shift == 0)
       return *this;
 
@@ -686,14 +710,14 @@ public:
     return *this;
   }
 
-  Integer operator<<(size_t shift) const {
-    Integer result = *this;
+  DynamicInteger operator<<(size_t shift) const {
+    DynamicInteger result = *this;
     result <<= shift;
     return result;
   }
 
   // Right shift (logical)
-  Integer &operator>>=(size_t shift) {
+  DynamicInteger &operator>>=(size_t shift) {
     if (shift == 0)
       return *this;
 
@@ -725,14 +749,14 @@ public:
     return *this;
   }
 
-  Integer operator>>(size_t shift) const {
-    Integer result = *this;
+  DynamicInteger operator>>(size_t shift) const {
+    DynamicInteger result = *this;
     result >>= shift;
     return result;
   }
 
   // Increment/Decrement
-  Integer &operator++() {
+  DynamicInteger &operator++() {
     for (size_t i = 0; i < length(); ++i) {
       if (++segments[i] != 0)
         return *this;
@@ -742,13 +766,13 @@ public:
     return *this;
   }
 
-  Integer operator++(int) {
-    Integer temp = *this;
+  DynamicInteger operator++(int) {
+    DynamicInteger temp = *this;
     ++(*this);
     return temp;
   }
 
-  Integer &operator--() {
+  DynamicInteger &operator--() {
     for (size_t i = 0; i < length(); ++i) {
       if (segments[i]-- != 0) {
         trim();
@@ -759,14 +783,14 @@ public:
     return *this;
   }
 
-  Integer operator--(int) {
-    Integer temp = *this;
+  DynamicInteger operator--(int) {
+    DynamicInteger temp = *this;
     --(*this);
     return temp;
   }
 
   // Spaceship operator
-  std::strong_ordering operator<=>(const Integer &other) const {
+  std::strong_ordering operator<=>(const DynamicInteger &other) const {
     if (length() != other.length()) {
       return length() <=> other.length();
     }
@@ -778,7 +802,7 @@ public:
     return std::strong_ordering::equal;
   }
 
-  bool operator==(const Integer &other) const {
+  bool operator==(const DynamicInteger &other) const {
     return segments == other.segments;
   }
 
@@ -800,14 +824,14 @@ public:
 
 private:
   // Helper for division
-  static std::pair<Integer, Integer> divide(const Integer &dividend,
-                                            const Integer &divisor) {
+  static std::pair<DynamicInteger, DynamicInteger>
+  divide(const DynamicInteger &dividend, const DynamicInteger &divisor) {
     if (!divisor) {
       throw std::domain_error("Division by zero");
     }
 
-    Integer quotient;
-    Integer remainder;
+    DynamicInteger quotient;
+    DynamicInteger remainder;
 
     size_t total_bits = dividend.bits();
 
@@ -839,23 +863,19 @@ private:
   }
 };
 
-using Dynamic = Integer<std::dynamic_extent>;
-
 // Convert Integer to decimal string
-template <size_t Bits>
-  requires((Bits == std::dynamic_extent) ||
-           (std::has_single_bit(Bits) && (Bits > 64)))
-std::string to_string(const Integer<Bits> &value) {
+std::string to_string(const Integer auto &value) {
+
   if (!value) {
     return "0";
   }
 
   std::string result;
-  Integer<Bits> temp = value;
-  const Integer<Bits> ten(10);
+  Integer auto temp = value;
+  const decltype(temp) ten(10);
 
   while (temp) {
-    Integer<Bits> digit = temp % ten;
+    Integer auto digit = temp % ten;
     result += static_cast<char>('0' + digit.tail());
     temp /= ten;
   }
@@ -865,16 +885,13 @@ std::string to_string(const Integer<Bits> &value) {
 }
 
 // Convert string to Integer
-template <size_t Bits>
-  requires((Bits == std::dynamic_extent) ||
-           (std::has_single_bit(Bits) && (Bits > 64)))
-std::optional<Integer<Bits>> from_string(std::string_view from) {
+template <Integer T> std::optional<T> from_string(std::string_view from) {
   if (from.empty()) {
     return std::nullopt;
   }
 
-  Integer<Bits> result(0);
-  const Integer<Bits> ten(10);
+  T result(0);
+  const T ten(10);
 
   for (char c : from) {
     if (c < '0' || c > '9') {
@@ -882,7 +899,7 @@ std::optional<Integer<Bits>> from_string(std::string_view from) {
     }
 
     result *= ten;
-    result += Integer<Bits>(static_cast<int>(c - '0'));
+    result += T(static_cast<int>(c - '0'));
   }
 
   return result;
@@ -893,10 +910,8 @@ std::optional<Integer<Bits>> from_string(std::string_view from) {
 // std::numeric_limits specialization
 namespace std {
 template <size_t Bits>
-  requires((Bits != std::dynamic_extent) &&
-           (std::has_single_bit(Bits) && (Bits > 64)))
-class numeric_limits<ArbitraryPrecision::Integer<Bits>> {
-  using Integer = ArbitraryPrecision::Integer<Bits>;
+class numeric_limits<ArbitraryPrecision::FixedInteger<Bits>> {
+  using Integer = ArbitraryPrecision::FixedInteger<Bits>;
 
 public:
   static constexpr bool is_specialized = true;
