@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cassert>
 #include <climits>
 #include <compare>
 #include <concepts>
@@ -97,7 +98,7 @@ public:
   }
 
   // Constructor from integral types
-  constexpr FixedInteger(std::integral auto value) {
+  explicit constexpr FixedInteger(std::integral auto value) {
     static_assert(sizeof(decltype(value)) <= sizeof(Chunk),
                   "Integral value cannot be larger than Chunk value");
     if constexpr (std::is_signed_v<decltype(value)>) {
@@ -114,6 +115,9 @@ public:
       segments[0] = static_cast<Chunk>(value);
     }
   }
+
+  // Constructor from Dynamic Integer (forward declaration)
+  explicit constexpr FixedInteger(const DynamicInteger &value);
 
   // Unary operators
   constexpr FixedInteger operator+() const { return *this; }
@@ -387,6 +391,10 @@ public:
     return std::span{segments.begin(), segments.size()};
   }
 
+  constexpr std::span<const Chunk, (Bits / 64)> as_span() const {
+    return std::span{segments.begin(), segments.size()};
+  }
+
 private:
   // Helper for division
   static constexpr std::pair<FixedInteger, FixedInteger>
@@ -478,7 +486,7 @@ public:
   size_t bits() const { return length() * (sizeof(Chunk) * CHAR_BIT); }
 
   // Constructor from integral types
-  DynamicInteger(std::integral auto value) : segments(1, 0) {
+  explicit DynamicInteger(std::integral auto value) : segments(1, 0) {
     static_assert(sizeof(decltype(value)) <= sizeof(Chunk),
                   "Integral value cannot be larger than Chunk value");
     // Simply cast the value to Chunk - for signed negative values,
@@ -486,6 +494,10 @@ public:
     // in the lowest 64 bits without unnecessary sign extension
     segments[0] = static_cast<Chunk>(value);
   }
+
+  // Constructor from Fixed Integer (forward declaration)
+  template <size_t Bits>
+  explicit DynamicInteger(const FixedInteger<Bits> &value);
 
   // Unary operators
   DynamicInteger operator+() const { return *this; }
@@ -822,6 +834,10 @@ public:
     return std::span{segments.begin(), segments.size()};
   }
 
+  constexpr std::span<const Chunk, std::dynamic_extent> as_span() const {
+    return std::span{segments.begin(), segments.size()};
+  }
+
 private:
   // Helper for division
   static std::pair<DynamicInteger, DynamicInteger>
@@ -861,6 +877,26 @@ private:
 
     return {quotient, remainder};
   }
+};
+
+// Fixed <-> Dynamic conversion constructors
+template <size_t Bits_>
+  requires(std::has_single_bit(Bits_) && (Bits_ > 64))
+constexpr FixedInteger<Bits_>::FixedInteger(const DynamicInteger &value) {
+  assert(FixedInteger<Bits_>::length() >= value.length() &&
+         "FixedInteger must be big enough to fit DynamicInteger");
+
+  auto segments = value.as_span();
+  std::copy(segments.begin(), segments.end(), this->segments.begin());
+};
+
+template <size_t Bits_>
+DynamicInteger::DynamicInteger(const FixedInteger<Bits_> &value) {
+  // assume vector is already empty (we are in constructor)
+  auto segments = value.as_span();
+  std::copy(segments.begin(), segments.end(),
+            std::back_inserter(this->segments));
+  this->trim();
 };
 
 // Convert Integer to decimal string
